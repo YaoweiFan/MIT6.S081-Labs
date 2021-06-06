@@ -6,41 +6,41 @@
 int
 main(int argc, char *argv[])
 {
-    char argv_new[10][6];
+    char *argv_new[MAXARG];
     int num;
     char buff[256];
-    int n;
     char *start = buff;
 
-
     for(num=1; num<argc; num++){
-        strcpy(argv_new[num-1], argv[num]);
+        argv_new[num-1] = argv[num];
     }
-
+    // printf("argc = %d, num = %d\n", argc, num);
     if(fork() == 0){
-        n = read(0, buff, sizeof(buff));
-        if(n == 0){
-            printf("No info can be read!\n");
-            exit(0);
-        }
-        for(int j=0; j<n; j++){
-            if(buff[j] == '\n' || j == n-1){
-                memcpy(argv_new[num], start, buff+j+1-start);
+        read(0, buff, sizeof(buff));
+        // printf("*******************************\n");
+        // printf("%s", buff);
+        // printf("*******************************\n");
+        for(int j=0; j<strlen(buff); j++){
+            if(buff[j] == '\n'){
+                char buf[12];
+                memcpy(buf, start, buff+j-start);
+                buf[buff+j-start] = 0;
+                argv_new[num-1] = buf;
+                argv_new[num] = 0;
+                // printf("***************\n");
+                // printf("%s", argv_new[num-1]);
+                // printf("***************\n");
 
-                if(buff[j] != '\n' && j == n-1){
-                    argv_new[num][j+1] = '\n';
-                    argv_new[num][j+2] = 0;
+                if(fork() == 0){
+                    // printf("%s, %s, %s, %s\n", argv_new[0], argv_new[1], argv_new[2], argv_new[3]);
+                    exec(argv_new[0], (char**)argv_new);
+                    // exec 要返回的
+                    exit(0);
                 }
-                else{
-                    argv_new[num][j+1] = 0;
-                }
-
-                if(fork() == 0)
-                    exec(argv[1], (char**)argv_new);
                 else
                     wait(0);
 
-                start = start + j + 1;
+                start = buff + j + 1;
             }        
         }
     }
