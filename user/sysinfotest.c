@@ -19,7 +19,7 @@ int
 countfree()
 {
   uint64 sz0 = (uint64)sbrk(0);
-  struct sysinfo info;
+  // struct sysinfo info;
   int n = 0;
 
   while(1){
@@ -28,13 +28,14 @@ countfree()
     }
     n += PGSIZE;
   }
-  sinfo(&info);
-  if (info.freemem != 0) {
-    printf("FAIL: there is no free mem, but sysinfo.freemem=%d\n",
-      info.freemem);
-    exit(1);
-  }
+  // sinfo(&info);
+  // if (info.freemem != 0) {
+  //   printf("FAIL: there is no free mem, but sysinfo.freemem=%d\n",
+  //     info.freemem);
+  //   exit(1);
+  // }
   sbrk(-((uint64)sbrk(0) - sz0));
+  printf("%p\n", n);
   return n;
 }
 

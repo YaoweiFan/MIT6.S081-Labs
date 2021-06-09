@@ -80,3 +80,31 @@ kalloc(void)
     memset((char*)r, 5, PGSIZE); // fill with junk
   return (void*)r;
 }
+
+uint64
+collect_freemem(void)
+{
+  struct run *r;
+  uint64 freepage = 0;
+  acquire(&kmem.lock);
+  printf("Start collecting:\n");
+  printf("\tkmem.freelist: %p\n", kmem.freelist);
+  printf("\tend: %p\n", end);
+
+  r = kmem.freelist;
+  printf("\tr: %p\n", r);
+  printf("\tr->next: %p\n", r->next);
+  // printf("\tr->next->next: %p\n", r->next->next);
+  printf("\t...\n");
+  while (r)
+  {
+    freepage += 1;
+    r = r->next;
+    // printf("\tr: %p\n", r);
+
+  }
+  printf("\tr: %p\n", r);
+  printf("\tfreepage: %p\n", freepage);
+  release(&kmem.lock);
+  return (freepage << 12);
+}
