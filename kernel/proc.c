@@ -19,6 +19,10 @@ extern void forkret(void);
 static void wakeup1(struct proc *chan);
 static void freeproc(struct proc *p);
 
+extern char etext[];  // kernel.ld sets this to end of kernel code.
+
+extern pagetable_t kernel_pagetable;
+
 extern char trampoline[]; // trampoline.S
 
 // initialize the proc table at boot time.
@@ -26,7 +30,7 @@ void
 procinit(void)
 {
   struct proc *p;
-  
+
   initlock(&pid_lock, "nextpid");
   for(p = proc; p < &proc[NPROC]; p++) {
       initlock(&p->lock, "proc");
@@ -85,6 +89,54 @@ allocpid() {
   return pid;
 }
 
+void
+ckvmmap(pagetable_t kernel_pagetable, uint64 va, uint64 pa, uint64 sz, int perm)
+{
+  if(mappages(kernel_pagetable, va, sz, pa, perm) != 0)
+    panic("ckvmmap");
+}
+
+// 创建进程的 kernel_pagetable
+pagetable_t
+pkpg(struct proc *p) 
+{
+  pagetable_t kernel_pagetable_copy = (pagetable_t) kalloc();
+
+  memset(kernel_pagetable_copy, 0, PGSIZE);
+
+  // uart registers
+  ckvmmap(kernel_pagetable_copy, UART0, UART0, PGSIZE, PTE_R | PTE_W);
+
+  // virtio mmio disk interface
+  ckvmmap(kernel_pagetable_copy, VIRTIO0, VIRTIO0, PGSIZE, PTE_R | PTE_W);
+
+  // CLINT
+  ckvmmap(kernel_pagetable_copy, CLINT, CLINT, 0x10000, PTE_R | PTE_W);
+
+  // PLIC
+  ckvmmap(kernel_pagetable_copy, PLIC, PLIC, 0x400000, PTE_R | PTE_W);
+
+  // map kernel text executable and read-only.
+  ckvmmap(kernel_pagetable_copy, KERNBASE, KERNBASE, (uint64)etext-KERNBASE, PTE_R | PTE_X);
+
+  // map kernel data and the physical RAM we'll make use of.
+  ckvmmap(kernel_pagetable_copy, (uint64)etext, (uint64)etext, PHYSTOP-(uint64)etext, PTE_R | PTE_W);
+
+  // map the trampoline for trap entry/exit to
+  // the highest virtual address in the kernel.
+  ckvmmap(kernel_pagetable_copy, TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
+
+  // 找到目标 proc 的内核栈的物理地址，再在 proc->kernel_pagetable 上建立相应的映射关系
+  uint64 va = KSTACK((int) (p - proc));
+  uint64 pa = walkaddr_test(kernel_pagetable, va);
+
+  //这个时候寻址应该是用了 kernel_pagetable 的
+  ckvmmap(kernel_pagetable_copy, va, pa, PGSIZE, PTE_R | PTE_W);
+  p->kstack = va;
+
+  return kernel_pagetable_copy;
+}
+
 // Look in the process table for an UNUSED proc.
 // If found, initialize state required to run in the kernel,
 // and return with p->lock held.
@@ -121,6 +173,9 @@ found:
     return 0;
   }
 
+  // 复制 kernel_pagetable 的映射关系
+  p->kernel_pagetable = pkpg(p);
+
   // Set up new context to start executing at forkret,
   // which returns to user space.
   memset(&p->context, 0, sizeof(p->context));
@@ -128,6 +183,29 @@ found:
   p->context.sp = p->kstack + PGSIZE;
 
   return p;
+}
+
+// Free the copy of the kernel page table 
+// without also freeing the leaf physical memory pages.
+void
+proc_freepagetable_only(pagetable_t pagetable)
+{
+  // there are 2^9 = 512 PTEs in a page table.
+  for(int i = 0; i < 512; i++){
+    pte_t pte = pagetable[i];
+    if(pte & PTE_V){
+      pagetable_t pagetable_next = (pagetable_t)PTE2PA(pte);
+      for(int j = 0; j < 512; j++){
+        pte_t pte_next = pagetable_next[j];
+        if(pte_next & PTE_V){
+          pagetable_t pagetable_next_next = (pagetable_t)PTE2PA(pte_next);
+          kfree((void*)pagetable_next_next);
+        }
+      }
+      kfree((void*)pagetable_next);
+    }
+  }
+  kfree((void*)pagetable);
 }
 
 // free a proc structure and the data hanging from it,
@@ -141,7 +219,11 @@ freeproc(struct proc *p)
   p->trapframe = 0;
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
+  if(p->kernel_pagetable)
+    proc_freepagetable_only(p->kernel_pagetable);
+
   p->pagetable = 0;
+  p->kernel_pagetable = 0;
   p->sz = 0;
   p->pid = 0;
   p->parent = 0;
@@ -152,6 +234,7 @@ freeproc(struct proc *p)
   p->state = UNUSED;
 }
 
+//暂时不做调整
 // Create a user page table for a given process,
 // with no user memory, but with trampoline pages.
 pagetable_t
@@ -187,6 +270,7 @@ proc_pagetable(struct proc *p)
 
 // Free a process's page table, and free the
 // physical memory it refers to.
+// 这里不考虑 kptl，kptl 有自己的释放函数
 void
 proc_freepagetable(pagetable_t pagetable, uint64 sz)
 {
@@ -218,7 +302,7 @@ userinit(void)
   
   // allocate one user page and copy init's instructions
   // and data into it.
-  uvminit(p->pagetable, initcode, sizeof(initcode));
+  uvminit(p->pagetable, p->kernel_pagetable, initcode, sizeof(initcode));
   p->sz = PGSIZE;
 
   // prepare for the very first "return" from kernel to user.
@@ -243,11 +327,11 @@ growproc(int n)
 
   sz = p->sz;
   if(n > 0){
-    if((sz = uvmalloc(p->pagetable, sz, sz + n)) == 0) {
+    if((sz = uvmalloc(p->pagetable, p->kernel_pagetable, sz, sz + n)) == 0) {
       return -1;
     }
   } else if(n < 0){
-    sz = uvmdealloc(p->pagetable, sz, sz + n);
+    sz = uvmdealloc(p->pagetable, p->kernel_pagetable, sz, sz + n);
   }
   p->sz = sz;
   return 0;
@@ -268,7 +352,7 @@ fork(void)
   }
 
   // Copy user memory from parent to child.
-  if(uvmcopy(p->pagetable, np->pagetable, p->sz) < 0){
+  if(uvmcopy(p->pagetable, np->pagetable, np->kernel_pagetable, p->sz) < 0){
     freeproc(np);
     release(&np->lock);
     return -1;
@@ -473,11 +557,16 @@ scheduler(void)
         // before jumping back to us.
         p->state = RUNNING;
         c->proc = p;
+
+        w_satp(MAKE_SATP(p->kernel_pagetable));
+        sfence_vma();
+        
         swtch(&c->context, &p->context);
 
         // Process is done running for now.
         // It should have changed its p->state before coming back.
         c->proc = 0;
+        kvminithart();
 
         found = 1;
       }

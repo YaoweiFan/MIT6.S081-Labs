@@ -1,0 +1,20 @@
+>Explain the output of vmprint in terms of Fig 3-4 from the text. 
+..0: pte 0x0000000021fda801 pa 0x0000000087f6a000
+.. ..0: pte 0x0000000021fda401 pa 0x0000000087f69000
+.. .. ..0: pte 0x0000000021fdac1f pa 0x0000000087f6b000
+.. .. ..1: pte 0x0000000021fda00f pa 0x0000000087f68000
+.. .. ..2: pte 0x0000000021fd9c1f pa 0x0000000087f67000
+这部分是 text、data、stack
+
+..255: pte 0x0000000021fdb401 pa 0x0000000087f6d000
+.. ..511: pte 0x0000000021fdb001 pa 0x0000000087f6c000
+.. .. ..510: pte 0x0000000021fdd807 pa 0x0000000087f76000
+.. .. ..511: pte 0x0000000020001c0b pa 0x0000000080007000
+这部分是 trampoline、trapframe
+
+>What does page 0 contain? What is in page 2?
+0: initcode
+2：stack
+
+>When running in user mode, could the process read/write the memory mapped by page 1?
+不能

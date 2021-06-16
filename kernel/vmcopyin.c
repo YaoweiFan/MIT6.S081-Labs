@@ -33,7 +33,10 @@ copyin_new(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
 
   if (srcva >= p->sz || srcva+len >= p->sz || srcva+len < srcva)
     return -1;
+  // vmprint(p->kernel_pagetable);
   memmove((void *) dst, (void *)srcva, len);
+  // printf("dst: %p, srcva: %p\n", dst, srcva);
+ 
   stats.ncopyin++;   // XXX lock
   return 0;
 }
