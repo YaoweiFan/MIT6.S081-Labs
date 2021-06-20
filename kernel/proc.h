@@ -103,4 +103,50 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+
+  int alarm_interval;          // 闹钟时间间隔
+  uint64 handler;              // 用户空间中断函数地址
+  int ticks_passed;            // 目前走过的时间
+  int handler_on;          // 是否需要回到用户代码
+  int handler_in;
+  // uint64 epc_saved;     // 用户代码被打断的地址
+  // uint64 sp_saved;             // 用户栈地址
+  // uint64 ra_saved;             // 用户函数返回地址
+  // uint64 s0_saved;
+  // uint64 a5_saved;
+  // uint64 a4_saved;
+  // uint64 a0_saved;
+  // uint64 s1_saved;
+  uint64 saved_epc;           // saved user program counter
+  uint64 saved_ra;
+  uint64 saved_sp;
+  uint64 saved_gp;
+  uint64 saved_tp;
+  uint64 saved_t0;
+  uint64 saved_t1;
+  uint64 saved_t2;
+  uint64 saved_t3;
+  uint64 saved_t4;
+  uint64 saved_t5;
+  uint64 saved_t6;
+  uint64 saved_a0;
+  uint64 saved_a1;
+  uint64 saved_a2;
+  uint64 saved_a3;
+  uint64 saved_a4;
+  uint64 saved_a5;
+  uint64 saved_a6;
+  uint64 saved_a7;
+  uint64 saved_s0;
+  uint64 saved_s1;
+  uint64 saved_s2;
+  uint64 saved_s3;
+  uint64 saved_s4;
+  uint64 saved_s5;
+  uint64 saved_s6;
+  uint64 saved_s7;
+  uint64 saved_s8;
+  uint64 saved_s9;
+  uint64 saved_s10;
+  uint64 saved_s11;
 };
