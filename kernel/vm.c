@@ -5,6 +5,7 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
+#include "spinlock.h"
 
 /*
  * the kernel's page table.
@@ -15,6 +16,10 @@ extern char etext[];  // kernel.ld sets this to end of kernel code.
 
 extern char trampoline[]; // trampoline.S
 
+extern struct {
+  struct spinlock lock;
+  uint8* cow_array;
+} cow;
 /*
  * create a direct-map page table for the kernel.
  */
@@ -311,7 +316,7 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   pte_t *pte;
   uint64 pa, i;
   uint flags;
-  char *mem;
+  // char *mem;
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
@@ -320,19 +325,24 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
       panic("uvmcopy: page not present");
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
-      goto err;
-    memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-      kfree(mem);
-      goto err;
-    }
+    flags = (flags & (~PTE_W)) | PTE_COW;
+    // if((mem = kalloc()) == 0)
+    //   goto err;
+    // memmove(mem, (char*)pa, PGSIZE);
+    // if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
+    //   kfree(mem);
+    //   goto err;
+    // }
+    mappages(new, i, PGSIZE, pa, flags);
+    uvmunmap(old, i, 1, 0);
+    mappages(old, i, PGSIZE, pa, flags);
+    rci(pa);
   }
   return 0;
 
- err:
-  uvmunmap(new, 0, i / PGSIZE, 1);
-  return -1;
+//  err:
+//   uvmunmap(new, 0, i / PGSIZE, 1);
+//   return -1;
 }
 
 // mark a PTE invalid for user access.
@@ -355,12 +365,46 @@ int
 copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 {
   uint64 n, va0, pa0;
+  pte_t *pte;
+  uint flags;
 
   while(len > 0){
     va0 = PGROUNDDOWN(dstva);
-    pa0 = walkaddr(pagetable, va0);
-    if(pa0 == 0)
+
+    if(walkaddr(pagetable, va0) == 0)
       return -1;
+    if((pte = walk(pagetable, va0, 0)) == 0)
+      return -1;
+      // panic("uvmcopy: pte should exist");
+    if((*pte & PTE_V) == 0)
+      return -1;
+      // panic("uvmcopy: page not present");
+    pa0 = PTE2PA(*pte);
+    flags = PTE_FLAGS(*pte);
+    acquire(&cow.lock);
+    if(r_rc(pa0) == 1){
+      // 如果pa只被一个pgt映射，就去除 COW 标记、添加 W 标记
+      flags = (flags | PTE_W) & (~PTE_COW);
+      uvmunmap(pagetable, va0, 1, 0);
+      mappages(pagetable, va0, PGSIZE, pa0, flags);
+    }
+    else{
+      // 如果pa被多个pgt映射，就 kalloc 一页内存
+      char *mem;
+      if((mem = newkalloc()) == 0){
+        printf("no memory\n");
+        // kfree();
+        return -1;
+      }
+      flags = (flags | PTE_W) & (~PTE_COW);
+      memmove(mem, (char*)pa0, PGSIZE);
+      uvmunmap(pagetable, va0, 1, 0);
+      mappages(pagetable, va0, PGSIZE, (uint64)mem, flags);
+      // 这个时候指向同一个物理地址的虚拟地址就会少一个
+      rcd(pa0);
+      pa0 = (uint64)mem;
+    }
+    release(&cow.lock);
     n = PGSIZE - (dstva - va0);
     if(n > len)
       n = len;

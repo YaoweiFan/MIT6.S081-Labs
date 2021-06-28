@@ -10,8 +10,13 @@ struct spinlock tickslock;
 uint ticks;
 
 extern char trampoline[], uservec[], userret[];
-
+// extern struct run *testr;
 // in kernelvec.S, calls kerneltrap().
+extern struct {
+  struct spinlock lock;
+  uint8* cow_array;
+} cow;
+
 void kernelvec();
 
 extern int devintr();
@@ -67,7 +72,56 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
-  } else {
+  } else if(r_scause() == 15){
+    // 处理写 “不带 W 标记页” 错误
+    pte_t *pte;
+    uint64 va = PGROUNDDOWN(r_stval());
+    uint flags;
+
+    if((pte = walk(p->pagetable, va, 0)) == 0)
+      panic("uvmcopy: pte should exist");
+    if((*pte & PTE_V) == 0)
+      panic("uvmcopy: page not present");
+    flags = PTE_FLAGS(*pte);
+
+    // 只对因 copy-on-write fork 机制产生的 page fault 进行处理 
+    if(flags & PTE_COW){
+      uint64 pa = PTE2PA(*pte);
+      // printf("sepc=%p, r_scause=%d, stval=%p, va=%p\n", r_sepc(), r_scause(), r_stval(), va);
+      acquire(&cow.lock);
+      if(r_rc(pa) == 1){
+        // 如果pa只被一个pgt映射，就去除 COW 标记、添加 W 标记
+        flags = (flags | PTE_W) & (~PTE_COW);
+        uvmunmap(p->pagetable, va, 1, 0);
+        mappages(p->pagetable, va, PGSIZE, pa, flags);
+        // print_cow_array();
+      }
+      else {
+        // 如果pa被多个pgt映射，就 kalloc 一页内存
+        char *mem;
+        if((mem = newkalloc()) == 0){
+          // panic("no memory!");
+          // printf("no memory\n");
+          p->killed = 1;
+        }
+        else
+        {
+          flags = (flags | PTE_W) & (~PTE_COW);
+          memmove(mem, (char*)pa, PGSIZE);
+          uvmunmap(p->pagetable, va, 1, 0);
+          mappages(p->pagetable, va, PGSIZE, (uint64)mem, flags);
+          // 这个时候指向同一个物理地址的虚拟地址就会少一个
+          rcd(pa);
+        }
+      }
+      release(&cow.lock);
+    }
+    else{
+      panic("is not cow");
+      // p->killed = 1;
+    }
+  }
+  else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
     p->killed = 1;
@@ -146,6 +200,7 @@ kerneltrap()
   if((which_dev = devintr()) == 0){
     printf("scause %p\n", scause);
     printf("sepc=%p stval=%p\n", r_sepc(), r_stval());
+    // printf("%p\n", testr);
     panic("kerneltrap");
   }
 

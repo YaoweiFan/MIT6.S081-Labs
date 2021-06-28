@@ -49,6 +49,19 @@ sys_sbrk(void)
   addr = myproc()->sz;
   if(growproc(n) < 0)
     return -1;
+  // uint64 min, max;
+  // if(n < 0){
+  //   min = addr + n;
+  //   max = addr;
+  // }
+  // else{
+  //   min = addr;
+  //   max = addr + n;
+  //   printf("***********************************************************************************\n");
+  //   print_cow_array(myproc()->pagetable, min, max);
+  //   printf("***********************************************************************************\n");
+  // }
+
   return addr;
 }
 
@@ -94,4 +107,11 @@ sys_uptime(void)
   xticks = ticks;
   release(&tickslock);
   return xticks;
+}
+
+uint64
+sys_cow(void)
+{
+  print_cow_array();
+  return 0;
 }
