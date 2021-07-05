@@ -159,9 +159,12 @@ end_op(void)
     // begin_op() may be waiting for log space,
     // and decrementing log.outstanding has decreased
     // the amount of reserved space.
-    wakeup(&log);
+    wakeup(&log); 
   }
   release(&log.lock);
+
+// 这里不怕被 end_op 截胡，只会有 outstanding 数量的 end_op 执行，其它的文件
+// 系统操作都被 begin_op 给拦下了
 
   if(do_commit){
     // call commit w/o holding locks, since not allowed

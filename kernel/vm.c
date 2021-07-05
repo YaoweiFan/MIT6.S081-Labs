@@ -212,7 +212,12 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
     return oldsz;
 
   oldsz = PGROUNDUP(oldsz);
+  // printf("****************************\n");
+  // printf("oldsize = %d, newsize = %d\n", oldsz, newsz);
+
   for(a = oldsz; a < newsz; a += PGSIZE){
+    // if ((a-oldsz) % (PGSIZE*100) == 0)
+      // printf("a = %d\n", a);
     mem = kalloc();
     if(mem == 0){
       uvmdealloc(pagetable, a, oldsz);
@@ -225,6 +230,9 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
       return 0;
     }
   }
+
+  // printf("****************************\n");
+
   return newsz;
 }
 
