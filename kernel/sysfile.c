@@ -15,6 +15,7 @@
 #include "sleeplock.h"
 #include "file.h"
 #include "fcntl.h"
+#include "buf.h"
 
 // Fetch the nth word-sized system call argument as a file descriptor
 // and return both the descriptor and the corresponding struct file.
@@ -322,6 +323,46 @@ sys_open(void)
     return -1;
   }
 
+  // struct buf *bp;
+  // uint addr;
+  // char *a;
+  char paths[10][MAXPATH];
+  int flag = 0;
+  if(ip->type == T_SYMLINK && (omode & O_NOFOLLOW) == 0){
+    for(int i=0; i<10; i++){
+      strncpy(paths[i], path, MAXPATH);
+      // 读取 inode 中的 target 路径
+      // addr = ip->addrs[0];
+      // bp = bread(ip->dev, addr);
+      // a = (char*)bp->data;
+      // strncpy(path, a, MAXPATH);
+      // brelse(bp);
+      readi(ip, 0, (uint64)path, 0, MAXPATH);
+      for(int j=0; j<=i; j++){
+        if(!strncmp(paths[j], path, MAXPATH)){
+          flag = 1;
+          break;
+        }
+      }
+      if(flag)  break;
+      iunlockput(ip);
+      // 寻找与 path 相对应的 inode
+      if((ip = namei(path)) == 0){
+        end_op();
+        return -1;
+      }
+      ilock(ip);
+      if(ip->type != T_SYMLINK)
+        break;
+    }
+
+    if((ip->type == T_SYMLINK) || flag){
+      iunlockput(ip);
+      end_op();
+      return -1;
+    }
+  }
+
   if((f = filealloc()) == 0 || (fd = fdalloc(f)) < 0){
     if(f)
       fileclose(f);
@@ -482,5 +523,40 @@ sys_pipe(void)
     fileclose(wf);
     return -1;
   }
+  return 0;
+}
+
+uint64
+sys_symlink(void)
+{
+  char target[MAXPATH], path[MAXPATH];
+  if(argstr(0, target, MAXPATH) < 0 || argstr(1, path, MAXPATH) < 0)
+    return -1;
+
+  begin_op();
+
+  // 分配一个 inode
+  struct inode *ip;
+  if((ip = create(path, T_SYMLINK, 0, 0)) == 0){
+    end_op();
+    return -1;
+  }
+  // struct buf *bp;
+  // uint addr;
+  // char *a;
+
+  // 在 inode 中填入 target 路径
+  // ilock(ip);
+  // ip->addrs[0] = addr = balloc(ip->dev);
+  // bp = bread(ip->dev, addr);
+  // a = (char*)bp->data;
+  // strncpy(a, target, MAXPATH);
+  // log_write(bp);
+  // brelse(bp);
+  // iupdate(ip);
+  writei(ip, 0, (uint64)target, 0, MAXPATH);
+  iunlockput(ip);
+
+  end_op();
   return 0;
 }
