@@ -115,9 +115,12 @@ sockread(struct sock *si, uint64 addr, int n)
   int len;
 
   acquire(&si->lock);
+  // printf("dddddd\n");
   while (mbufq_empty(&si->rxq) && !pr->killed) {
     sleep(&si->rxq, &si->lock);
+    // printf("yyyyyyyyyyyyyyyddddddssssssss*********************************\n");
   }
+  // printf("yyyyyyyyyyyyyyyddddddssssssss\n");
   if (pr->killed) {
     release(&si->lock);
     return -1;
@@ -168,8 +171,9 @@ sockrecvudp(struct mbuf *m, uint32 raddr, uint16 lport, uint16 rport)
   acquire(&lock);
   si = sockets;
   while (si) {
-    if (si->raddr == raddr && si->lport == lport && si->rport == rport)
+    if (si->raddr == raddr && si->lport == lport && si->rport == rport){
       goto found;
+    }
     si = si->next;
   }
   release(&lock);
@@ -179,6 +183,7 @@ sockrecvudp(struct mbuf *m, uint32 raddr, uint16 lport, uint16 rport)
 found:
   acquire(&si->lock);
   mbufq_pushtail(&si->rxq, m);
+  // printf("zgzy###################\n");
   wakeup(&si->rxq);
   release(&si->lock);
   release(&lock);

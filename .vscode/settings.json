@@ -1,0 +1,8 @@
+{
+    "files.associations": {
+        "spinlock.h": "c",
+        "net.h": "c",
+        "user.h": "c",
+        "stat.h": "c"
+    }
+}
