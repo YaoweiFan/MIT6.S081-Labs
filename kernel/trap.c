@@ -5,6 +5,9 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "sleeplock.h"
+#include "fs.h"
+#include "file.h"
 
 struct spinlock tickslock;
 uint ticks;
@@ -67,7 +70,51 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
-  } else {
+  } else if(r_scause() == 13 || r_scause() == 15){
+    uint64 addr = r_stval();
+    uint64 va = PGROUNDDOWN(addr);
+    struct vma* vma;
+    int otherpf = 1;
+
+    // find the vma which contains the va
+    for(int i=0; i<16; i++){
+        if(va >= p->vma[i].addr && va < p->vma[i].addr + p->vma[i].length){
+          vma = &p->vma[i];
+          otherpf = 0;
+          break;
+        }
+    }
+    // printf("va = %d\n", va);
+    if(otherpf || va < p->trapframe->sp)
+      p->killed = 1;
+    else{
+      char *mem;
+      // allocate one page and map
+      mem = kalloc();
+      if(mem == 0){
+        p->killed = 1;
+      }else{
+        memset(mem, 0, PGSIZE);
+        if(mappages(p->pagetable, va, PGSIZE, (uint64)mem, PTE_W|PTE_X|PTE_R|PTE_U) != 0){
+          kfree(mem);
+          p->killed = 1;
+        }else{
+          // read file
+          // printf("***ip->ref = %d\n", p->vma.file->ip->ref);
+          ilock(vma->file->ip);
+          // assume user read the mapped file one page by one page
+          vma->offset = va - vma->addr;
+          readi(vma->file->ip, 1, va, vma->offset, PGSIZE);
+          // printf("num = %d\n", num);
+          if(change_perm(p->pagetable, va, vma->prot << 1) == -1)
+            panic("can not change permission!");
+          iunlock(vma->file->ip);
+          // printf("ip->ref = %d***\n", p->vma.file->ip->ref);
+        }
+      }
+    }
+
+  }else{
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
     p->killed = 1;

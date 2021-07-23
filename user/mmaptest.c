@@ -144,7 +144,7 @@ mmap_test(void)
   p = mmap(0, PGSIZE*3, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
   if (p != MAP_FAILED)
     err("mmap call should have failed");
-  if (close(fd) == -1)
+  if (close(fd) == -1)//fd->file尚未关闭
     err("close");
 
   printf("test mmap read-only: OK\n");

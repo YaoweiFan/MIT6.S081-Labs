@@ -280,6 +280,19 @@ fork(void)
     release(&np->lock);
     return -1;
   }
+
+  for(int i=0; i<16; i++){
+    if(p->vma[i].addr != 0){
+      np->vma[i].addr = p->vma[i].addr;
+      np->vma[i].file = p->vma[i].file;
+      np->vma[i].flags = p->vma[i].flags;
+      np->vma[i].length = p->vma[i].length;
+      np->vma[i].offset = p->vma[i].offset;
+      np->vma[i].prot = p->vma[i].prot;
+      filedup(p->vma[i].file);
+    }
+  }
+
   np->sz = p->sz;
 
   np->parent = p;
@@ -358,6 +371,10 @@ exit(int status)
   end_op();
   p->cwd = 0;
 
+  for(int i=0; i<16; i++){
+    if (p->vma[i].addr != 0)
+      uvmunmap(p->pagetable, p->vma[i].addr, PGROUNDUP(p->vma[i].length)/PGSIZE, 1);
+  }
   // we might re-parent a child to init. we can't be precise about
   // waking up init, since we can't acquire its lock once we've
   // acquired any other proc lock. so wake up init whether that's
